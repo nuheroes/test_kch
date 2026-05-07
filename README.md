@@ -1,103 +1,201 @@
-# mjs-leaves — 이재성 M2 연차 자동 산출
+# AI 교육 제안서 자동 생성기 — 임유진 모듈
 
-> KCH그룹 인사총무팀 14h AI 워크숍 — **이재성 개인 repo**.
-> 본 repo는 [`kch-hr-module-template`](../kch-hr-module-template/)에서 fork됩니다. 공통 자산(스택·디자인·보안)은 그대로 두고, 본인 모듈만 채웁니다.
-
----
-
-## 1줄 요약
-
-> 법정 + 근속 + 해외 자동 산정 → 분기 사업부장 메일 (Cloud Scheduler `0 9 1 1,4,7,10 *`).
-
-**핵심 함수**: `getLeaves(empId): LeaveBalance` — 직원 ID 1개로 모든 휴가 잔여 한 번에 반환.
+> 교육 요청 정보를 입력하면 **Gemini(Google AI Studio)가 PPT 슬라이드 구성안을 자동 생성**합니다.  
+> 이노핏파트너스 PPT 포맷 기반 — 과정 내용이 아닌 **슬라이드 구성 구조**를 템플릿으로 사용.
 
 ---
 
-## 본인 모듈 폴더 구조
+## 참조: PPT 슬라이드 구성 포맷
+
+> 아래 구조를 그대로 재현하지 않고, 구성 패턴만 참고해 Gemini가 내용을 생성.
+
+| 슬라이드 | 섹션 | 핵심 요소 |
+|---------|------|----------|
+| 1 | **표지** | 제안사명 / 날짜 / 과정명 |
+| 2 | **과정 개요** | 목적(3가지 인사이트) / 대상·시간 / 교육방법(%) / 과정구성 / 기대효과(3가지) |
+| 3~N | **모듈별 세부내용** | 모듈명 / 세부 설명 / 소요 시간 |
+| N+1 | **추천 강사** | 강사 프로필·경력 |
+| N+2 | **회사 소개** | 업체 정보·연혁·수행사례 |
+| 마지막 | **고객 사례** | 레퍼런스 기업·성과 |
+
+---
+
+## 프론트엔드 계획
+
+### 기술 스택
+
+| 항목 | 선택 | 이유 |
+|------|------|------|
+| 프레임워크 | Next.js 14 (기존 템플릿) | 기존 프로젝트 활용 |
+| AI | Gemini API (`@google/generative-ai`) | Google AI Studio 연동 |
+| UI | shadcn/ui (Card·Badge·Tabs·DataTable) | KCH 공통 컴포넌트 |
+| 저장 | Firestore `ai_proposals` | 이력 관리 |
+| 스타일 | Tailwind + KCH 컬러(`#1962A8`/`#70AEDA`) | 공통 디자인 시스템 |
+
+---
+
+### 화면 구성 (3페이지)
+
+#### Page 1 — `/ai-proposal` (인덱스)
+```
+┌─────────────────────────────────────────┐
+│  KCH — AI 교육 제안서 생성기              │
+│  요청 입력 → Gemini → PPT 구성안 자동 생성 │
+├──────────────────┬──────────────────────┤
+│  새 제안서 생성   │   제안서 이력 보기     │
+│  [입력 폼으로 →] │   [저장 목록 →]       │
+└──────────────────┴──────────────────────┘
+```
+
+#### Page 2 — `/ai-proposal/generate` (핵심 페이지)
+```
+┌──────────────────────┬──────────────────────────────┐
+│   고객사 정보 입력    │    생성된 제안서 구조           │
+│                      │                              │
+│  고객사명: [    ]    │  ## 표지                      │
+│  업종:    [    ]    │  ## 과정 개요                  │
+│  기업규모: [▼  ]    │    - 목적 (3가지)              │
+│                      │    - 대상/시간/방법            │
+│  교육 요청:          │    - 기대효과 (3가지)          │
+│  [             ]    │                              │
+│  [             ]    │  ## 모듈 1: ___               │
+│                      │    세부 내용...               │
+│  교육 대상: [    ]  │                              │
+│  희망 시간: [    ]  │  ## 모듈 2: ___               │
+│                      │    세부 내용...               │
+│  [제안서 생성 버튼]  │                              │
+│                      │  ## 강사 프로필               │
+│                      │  ## 기대 효과                 │
+│                      │                              │
+│                      │  [복사] [저장]               │
+└──────────────────────┴──────────────────────────────┘
+```
+
+#### Page 3 — `/ai-proposal/history` (이력)
+```
+┌─────────────────────────────────────────────────┐
+│  제안서 이력                          [새 생성]  │
+├──────┬────────┬────────┬──────────┬─────────────┤
+│ 날짜 │ 고객사 │  업종  │  상태   │    액션      │
+├──────┼────────┼────────┼──────────┼─────────────┤
+│ 5/7  │ ABC(주)│ 제조업 │ 초안    │ [보기][삭제] │
+│ 5/6  │ DEF(주)│ 금융   │ 발송완료│ [보기]      │
+└──────┴────────┴────────┴──────────┴─────────────┘
+```
+
+---
+
+### 입력 필드 정의
+
+| 필드 | 타입 | 필수 | 예시 |
+|------|------|------|------|
+| 고객사명 | text | ✅ | (주)ABC그룹 |
+| 업종 | text | ✅ | 제조업 / 금융업 / 유통업 |
+| 기업규모 | select | ✅ | 대기업(1000명↑) / 중견 / 중소 / 스타트업 |
+| 교육 요청사항 | textarea | ✅ | "전사 AI 리터러시 향상, 실무 프롬프트 교육" |
+| 교육 대상 | text | ✅ | 전사 임직원 200명 / IT 개발자 30명 |
+| 희망 교육 시간 | text | - | 총 9시간(1일) / 3개월 12시간 |
+| 예산 범위 | text | - | 1,000만원 이내 |
+
+---
+
+### Gemini 프롬프트 설계
+
+**System Prompt 골격:**
+```
+당신은 기업 AI 교육 전문 컨설턴트입니다.
+고객사 정보를 바탕으로 PPT 슬라이드 구성안을 작성합니다.
+
+출력 구조 (반드시 준수):
+1. 표지 정보 (과정명 / 날짜 / 제안사)
+2. 과정 개요
+   - 목적: Strategic / Leadership / Operational 관점 각 1줄
+   - 대상 및 총 시간
+   - 교육 방법 (이론 X% / 실습 X% / 워크숍 X%)
+   - 기대효과 3가지
+3. 모듈 구성 (2~4개)
+   - 모듈명 / 소요 시간 / 세부 내용
+4. 강사 프로필 개요 (1~2명 추천 기준)
+5. 일정 제안
+```
+
+**User Prompt:** 고객사 입력값 → 위 구조에 맞게 내용 생성
+
+---
+
+### Gemini API 연동
+
+```
+모델: gemini-2.0-flash (속도·비용 균형)
+패키지: @google/generative-ai
+API 키: GEMINI_API_KEY (서버사이드 .env.local)
+라우트: POST /api/proposal → 서버에서 Gemini 호출 후 결과 반환
+```
+
+---
+
+### 파일 구조
 
 ```
 src/
 ├── app/
-│   └── m2-leaves/                     ← 본인 모듈 (D1 #4 cp -r)
-│       ├── page.tsx                   # 홈 — 사업부 4개 카드
-│       ├── dept/[id]/page.tsx         # 사업부별 집계
-│       ├── employee/[id]/page.tsx     # 개인별 잔여 (핵심 페이지)
-│       ├── quarterly/page.tsx         # 분기 리포트
-│       └── erp-upload/page.tsx        # ERP CSV 붙여넣기
+│   ├── ai-proposal/
+│   │   ├── page.tsx                   # 인덱스 (2-카드 그리드)
+│   │   ├── generate/page.tsx          # 생성 페이지 (2-column)
+│   │   └── history/page.tsx           # 이력 DataTable
+│   └── api/
+│       └── proposal/route.ts          # Gemini API 서버 라우트
 ├── lib/
-│   ├── m2-domain.ts                   # 산정 룰 (법정·근속·해외)
-│   └── m2-firestore.ts                # Firestore 어댑터
-└── ...
-
-functions/src/
-├── index.ts
-└── m2-automation.ts                   ← 분기 메일 (D2 #7)
+│   ├── ai-proposal-domain.ts          # 슬라이드 구조 템플릿 + 프롬프트 빌더
+│   └── ai-proposal-firestore.ts       # ai_proposals 컬렉션 어댑터
 ```
 
 ---
 
-## Firestore 컬렉션 (4개)
-
-| 컬렉션 | 의미 | 핵심 필드 |
-|---|---|---|
-| `employees` | 직원 마스터 | `empId(token)`, `joinDate`, `isOverseas`, `deptId`, `salaryToken` |
-| `leave_balances` | 휴가 잔여 (연도별 1행) | `empId`, `fiscalYear`, `legal`, `seniority`, `special`, `overseas`, `total` |
-| `leave_usages` | 휴가 사용 트랜잭션 | `empId`, `usedDate`, `category`, `days`, `reason` |
-| `org_units` | 조직 마스터 | `deptId`, `deptName`, `headEmail` |
-
----
-
-## 자동화 게이트 — 분기 메일
-
-### 함수: `quarterlyMail`
-
-- **트리거**: Cloud Scheduler `0 9 1 1,4,7,10 *` (분기 첫날 09:00 KST)
-- **동작**: 4개 사업부에 대해 분기 휴가 사용 현황을 집계 → Gmail Draft 4건 자동 생성
-- **자동 send X**: Draft만 생성. 사람이 검수 후 발송 결정 (분기 메일 사고 방지)
-
-### 검증 게이트
-
-- 4개 사업부 모두 Draft 생성됨
-- 각 Draft에 사업부별 데이터 포함 (다른 사업부 데이터 누수 0건)
-- 직원 식별 컬럼 평문 0건 (token만)
-
----
-
-## 사전 확정 4건 (D1 시작 전)
-
-본 repo를 clone하기 전에 다음 4건이 결정되어 있어야 합니다. [사전준비-체크리스트.md](../../교안/사전준비-체크리스트.md)를 참고하세요.
-
-1. **회계년도 기준일** — 1/1 vs 4/1 vs 입사월
-2. **ERP 추출 컬럼 구조** — CSV 샘플 1건 (인사정보 토큰 치환 후)
-3. **해외 14일 사용 후 잔여 처리** — 이월 / 소멸 / 환산
-4. **분기 메일 수신자/시점/포맷** — 본인 + 팀장 + CFO? / 분기 1일? / HTML 표
-
----
-
-## 슬래시커맨드 1개
-
-`/seed-erp` — ERP CSV 더미 1건 → Firestore 변환.
-
-`.claude/commands/seed-erp.md` 파일에 다음 내용을 적습니다 (D2 #6).
-
----
-
-## 30/60/90일 자력 로드맵
-
-- **30일**: ERP 직접 연동 (CSV import → API 호출). 분기 메일 자동 send (Draft → Send).
-- **60일**: 채용 평가 자동화 (M2 코드 80% 재사용). 복지포인트·생일 쿠폰. 연차수당 자동 계산.
-- **90일**: Apps Script 자산 → Cloud Functions 마이그레이션. 이윤재 SaaS와 데이터 통합.
-
----
-
-## 본인 URL 기록
+### Firestore 컬렉션
 
 ```
-본인 URL: ________________________________________________
+ai_proposals/
+  {docId}/
+    companyName:    string   # 고객사명
+    industry:       string   # 업종
+    companySize:    string   # 규모
+    request:        string   # 요청사항
+    targetAudience: string   # 교육 대상
+    preferredHours: string   # 희망 시간
+    result:         string   # Gemini 생성 결과 (마크다운)
+    status:         'draft' | 'sent'
+    _pushedAt:      Timestamp
 ```
-
-D2 #8 통합 시점에 이 URL을 이윤재(M4)에게 전달합니다.
 
 ---
 
-> 본 README의 상세 셋업은 [`교안/셋업-이재성-M2연차.md`](../../교안/셋업-이재성-M2연차.md) 참조.
+### 환경 변수 (.env.local)
+
+```bash
+GEMINI_API_KEY=AIza...                    # Google AI Studio API 키
+NEXT_PUBLIC_FIREBASE_API_KEY=...
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=...
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=...
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=...
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=...
+NEXT_PUBLIC_FIREBASE_APP_ID=...
+```
+
+---
+
+### 구현 순서
+
+| # | 작업 | 예상 시간 |
+|---|------|---------|
+| 1 | `npm install @google/generative-ai` | 5분 |
+| 2 | `src/lib/ai-proposal-domain.ts` — 슬라이드 템플릿 + 프롬프트 빌더 | 20분 |
+| 3 | `src/app/api/proposal/route.ts` — Gemini API 서버 라우트 | 15분 |
+| 4 | `src/lib/ai-proposal-firestore.ts` — Firestore 어댑터 | 10분 |
+| 5 | `src/app/ai-proposal/page.tsx` — 인덱스 (2-카드) | 10분 |
+| 6 | `src/app/ai-proposal/generate/page.tsx` — 핵심 생성 페이지 | 30분 |
+| 7 | `src/app/ai-proposal/history/page.tsx` — DataTable 이력 | 20분 |
+
+---
+
+> 스택·보안·컬러 공통 룰: [`kch-hr-module-template/CLAUDE.md`](./kch-hr-module-template/CLAUDE.md) 참조.
